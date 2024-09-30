@@ -1,0 +1,98 @@
+bl_info = {
+    "name": "AJO VG From Materials",
+    "blender": (4, 2, 0),
+    "category": "Object",
+}
+
+import bpy
+
+class OBJECT_PT_vertex_groups_from_materials(bpy.types.Panel):
+    """Creates a Panel in the Object properties window"""
+    bl_label = "VG From Materials"
+    bl_idname = "OBJECT_PT_vertex_groups"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'AJO'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        layout.prop(scene, "vg_name_format")  # Combined name format input
+        layout.operator("object.vertex_groups_from_materials")
+
+class OBJECT_OT_vertex_groups_from_materials(bpy.types.Operator):
+    """Create Vertex Groups based on Material Assignment"""
+    bl_idname = "object.vertex_groups_from_materials"
+    bl_label = "Set VG"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        scene = context.scene
+
+        name_format = scene.vg_name_format
+
+        # Loop through selected objects
+        for obj in selected_objects:
+            if obj.type == 'MESH':
+                materials = obj.data.materials
+
+                # Clear existing vertex groups
+                for vg in obj.vertex_groups:
+                    obj.vertex_groups.remove(vg)
+
+                # Create vertex groups based on materials
+                for mat_index, material in enumerate(materials):
+                    if material:
+                        # Prepare the group name using placeholders
+                        group_name = name_format.replace("{Mesh}", obj.name)
+                        group_name = group_name.replace("{Mat}", material.name)
+
+                        # Handle custom suffix formatting
+                        suffix_placeholder = name_format.split('{')[-1].split('}')[0]  # Get suffix format
+                        if suffix_placeholder.isdigit():
+                            length = len(suffix_placeholder)
+                            unique_suffix = f"{mat_index + 1:0{length}d}"
+                        else:
+                            unique_suffix = str(mat_index + 1)
+
+                        group_name = group_name.replace(f"{{{suffix_placeholder}}}", unique_suffix)
+
+                        # Create vertex group with unique name
+                        if group_name not in obj.vertex_groups.keys():
+                            vg = obj.vertex_groups.new(name=group_name)
+                        else:
+                            self.report({'WARNING'}, f"Vertex group {group_name} already exists, skipping...")
+
+                        # Assign vertices to the group based on material
+                        for poly in obj.data.polygons:
+                            if poly.material_index == mat_index:
+                                vg.add(poly.vertices, 1.0, 'ADD')
+
+                self.report({'INFO'}, f"Vertex groups created for {obj.name} with custom names.")
+            else:
+                self.report({'WARNING'}, f"Skipping non-mesh object: {obj.name}")
+
+        return {'FINISHED'}
+
+def register():
+    bpy.utils.register_class(OBJECT_PT_vertex_groups_from_materials)
+    bpy.utils.register_class(OBJECT_OT_vertex_groups_from_materials)
+    
+    # Add property for combined name format
+    bpy.types.Scene.vg_name_format = bpy.props.StringProperty(
+        name="Name Format",
+        description="Format for vertex group names using {Mesh}, {Mat}, and custom suffix like {001}",
+        default="{Mesh}-{Mat}-{001}"  # Default format
+    )
+
+def unregister():
+    bpy.utils.unregister_class(OBJECT_PT_vertex_groups_from_materials)
+    bpy.utils.unregister_class(OBJECT_OT_vertex_groups_from_materials)
+
+    # Remove custom properties
+    del bpy.types.Scene.vg_name_format
+
+if __name__ == "__main__":
+    register()
